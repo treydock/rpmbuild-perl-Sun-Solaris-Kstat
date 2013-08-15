@@ -5,9 +5,10 @@ commit="c74e8e026445540143e90bd027fb074eec698ac6"
 short_commit=$(echo $commit | cut -c1-7)
 version="0.01"
 
+QUIET="--quiet"
 DEBUG=0
 TRACE=""
-DIST="6"
+DIST="all"
 
 pushd `dirname $0` > /dev/null
 SCRIPTPATH=`pwd -P`
@@ -23,7 +24,8 @@ This script builds RPMs for perl-Sun-Solaris-Kstat.
 OPTIONS:
 
   -d, --dist      Distribution to use.
-                  Valid options are 5 and 6.
+                  Valid options are 5, 6, or all.
+                  Default: all
   --debug         Show debug output
   --trace         Show mock's debug output
   -h, --help      Show this message
@@ -49,6 +51,7 @@ while true; do
       ;;
     --debug)
       DEBUG=1
+      QUIET=""
       shift
       ;;
     --trace)
@@ -73,7 +76,7 @@ if [ $DEBUG -eq 1 ]; then
   set -x
 fi
 
-if [ "$DIST" -ne 6 ] && [ "$DIST" -ne 5 ]; then
+if [ "$DIST" -ne 6 ] 2>/dev/null && [ "$DIST" -ne 5 ] 2>/dev/null && [ "$DIST" != "all" ] 2>/dev/null; then
   echo "dist must be 5 or 6"
   usage
   exit 1
@@ -87,16 +90,23 @@ if [ ! -e ${SCRIPTPATH}/SOURCES/${tarball} ]; then
   curl -L -o ${SCRIPTPATH}/SOURCES/${tarball} ${repo_url}
 fi
 
-if [ "$DIST" -eq 5 ]; then
-  DIGEST="md5"
-else
-  DIGEST="sha256"
+if [ "$DIST" == "all" ]; then
+  DIST="6 5"
 fi
 
-srpm=$(rpmbuild -bs --define "dist .el${DIST}" --define "_source_filedigest_algorithm ${DIGEST}" --define "_binary_filedigest_algorithm ${DIGEST}" ${SCRIPTPATH}/SPECS/perl-Sun-Solaris-Kstat.spec | awk -F" " '{print $2}')
+for d in $DIST
+do
+  if [ "$d" -eq 5 ]; then
+    DIGEST="md5"
+  else
+    DIGEST="sha256"
+  fi
 
-cmd="mock -r epel-${DIST}-x86_64 ${TRACE} --resultdir=${resultdir} --rebuild ${srpm}"
-echo "Executing: ${cmd}"
-eval $cmd
+  srpm=$(rpmbuild -bs --define "dist .el${d}" --define "_source_filedigest_algorithm ${DIGEST}" --define "_binary_filedigest_algorithm ${DIGEST}" ${SCRIPTPATH}/SPECS/perl-Sun-Solaris-Kstat.spec | awk -F" " '{print $2}')
+
+  cmd="mock -r epel-${d}-x86_64 ${QUIET} ${TRACE} --resultdir=${resultdir} --rebuild ${srpm}"
+  echo "Executing: ${cmd}"
+  eval $cmd
+done
 
 exit 0
