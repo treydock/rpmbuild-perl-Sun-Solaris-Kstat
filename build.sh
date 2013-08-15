@@ -1,15 +1,20 @@
 #!/bin/bash
 
+# BEGIN: User defined variables #
 # Variables that define the version and commit to pull from Github
+# These need to be changed when the source is updated
 commit="c74e8e026445540143e90bd027fb074eec698ac6"
 short_commit=$(echo $commit | cut -c1-7)
 version="0.01"
+# END: User defined variables #
 
-QUIET="--quiet"
+# Default variables that have command line flags
+QUIET=1
 DEBUG=0
-TRACE=""
+TRACE=0
 DIST="all"
 
+# Get the full path of this script's directory
 pushd `dirname $0` > /dev/null
 SCRIPTPATH=`pwd -P`
 popd > /dev/null
@@ -27,12 +32,27 @@ OPTIONS:
                   Valid options are 5, 6, or all.
                   Default: all
   --debug         Show debug output
+                  This option also removes mock's --quiet option.
   --trace         Show mock's debug output
   -h, --help      Show this message
 
 EXAMPLE:
 
-$(basename $0) --epel ruby rubygems
+Build both EL6 and EL5 RPMs
+
+$(basename $0) --dist all
+
+Build only EL6 RPMs
+
+$(basename $0) --dist 6
+
+Run with this script's debug output and mock's normal output
+
+$(basename $0) --debug
+
+Enable all debug output and mock's trace output
+
+$(basename $0) --debug --trace
 
 EOF
 }
@@ -51,11 +71,11 @@ while true; do
       ;;
     --debug)
       DEBUG=1
-      QUIET=""
+      QUIET=0
       shift
       ;;
     --trace)
-      TRACE="--trace"
+      TRACE=1
       shift
       ;;
     -d|--dist)
@@ -72,41 +92,53 @@ while true; do
   esac
 done
 
-if [ $DEBUG -eq 1 ]; then
-  set -x
-fi
-
+# Validate the --dist option
 if [ "$DIST" -ne 6 ] 2>/dev/null && [ "$DIST" -ne 5 ] 2>/dev/null && [ "$DIST" != "all" ] 2>/dev/null; then
-  echo "dist must be 5 or 6"
+  echo "--dist must be 5, 6, or all"
   usage
   exit 1
 fi
+
+# Set variables based on command line flags
+[ $DEBUG -eq 1 ] && set -x
+[ $TRACE -eq 1 ] && mock_trace="--trace" || mock_trace=""
+[ $QUIET -eq 1 ] && mock_quiet="--quiet" || mock_quiet=""
+[ "$DIST" == "all" ] && DIST="6 5"
 
 resultdir="${SCRIPTPATH}/results/\"%(dist)s\"/\"%(target_arch)s\"/"
 tarball="perl-Sun-Solaris-Kstat-${version}-${short_commit}.tar.gz"
 repo_url="https://github.com/zfsonlinux/linux-kstat/archive/${commit}/${tarball}"
 
+# Download source tarball if not present
 if [ ! -e ${SCRIPTPATH}/SOURCES/${tarball} ]; then
   curl -L -o ${SCRIPTPATH}/SOURCES/${tarball} ${repo_url}
 fi
 
-if [ "$DIST" == "all" ]; then
-  DIST="6 5"
-fi
-
 for d in $DIST
 do
+  # Set the digset used for RPMbuild and mock's rpmbuild
+  # This is necessary because the default digest in EL6 will
+  # create unusable RPMs for EL5
   if [ "$d" -eq 5 ]; then
     DIGEST="md5"
   else
     DIGEST="sha256"
   fi
 
-  srpm=$(rpmbuild -bs --define "dist .el${d}" --define "_source_filedigest_algorithm ${DIGEST}" --define "_binary_filedigest_algorithm ${DIGEST}" ${SCRIPTPATH}/SPECS/perl-Sun-Solaris-Kstat.spec | awk -F" " '{print $2}')
+  # Create SRPM
+  srpm_out=$(rpmbuild -bs --define "dist .el${d}" --define "_source_filedigest_algorithm ${DIGEST}" --define "_binary_filedigest_algorithm ${DIGEST}" ${SCRIPTPATH}/SPECS/perl-Sun-Solaris-Kstat.spec)
+  srpm_ret=$?
+  [ $srpm_ret != 0 ] && { echo "rpmbuild of SRPM for dist ${d} failed!"; continue; }
 
-  cmd="mock -r epel-${d}-x86_64 ${QUIET} ${TRACE} --resultdir=${resultdir} --rebuild ${srpm}"
+  # Get SRPM's path from rpmbuild output
+  srpm=$(echo $srpm_out | awk -F" " '{print $2}')
+
+  # Run mock rebuild
+  cmd="mock -r epel-${d}-x86_64 ${mock_quiet} ${mock_trace} --resultdir=${resultdir} --rebuild ${srpm}"
   echo "Executing: ${cmd}"
   eval $cmd
+  mock_ret=$?
+  [ $mock_ret != 0 ] && { echo "Mock rebuild of ${srpm} failed!"; continue; }
 done
 
 exit 0
