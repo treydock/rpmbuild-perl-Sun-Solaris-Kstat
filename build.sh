@@ -1,19 +1,102 @@
 #!/bin/bash
 
+# Variables that define the version and commit to pull from Github
 commit="c74e8e026445540143e90bd027fb074eec698ac6"
 short_commit=$(echo $commit | cut -c1-7)
 version="0.01"
 
+DEBUG=0
+TRACE=""
+DIST="6"
+
+pushd `dirname $0` > /dev/null
+SCRIPTPATH=`pwd -P`
+popd > /dev/null
+
+usage () {
+
+cat << EOF
+usage: $(basename $0) [OPTIONS]
+
+This script builds RPMs for perl-Sun-Solaris-Kstat.
+
+OPTIONS:
+
+  -d, --dist      Distribution to use.
+                  Valid options are 5 and 6.
+  --debug         Show debug output
+  --trace         Show mock's debug output
+  -h, --help      Show this message
+
+EXAMPLE:
+
+$(basename $0) --epel ruby rubygems
+
+EOF
+}
+
+ARGS=`getopt -o hd: -l help,debug,trace,dist: -n "$0" -- "$@"`
+
+[ $? -ne 0 ] && { usage; exit 1; }
+
+eval set -- "${ARGS}"
+
+while true; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --debug)
+      DEBUG=1
+      shift
+      ;;
+    --trace)
+      TRACE="--trace"
+      shift
+      ;;
+    -d|--dist)
+      DIST="$2"
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if [ $DEBUG -eq 1 ]; then
+  set -x
+fi
+
+if [ "$DIST" -ne 6 ] && [ "$DIST" -ne 5 ]; then
+  echo "dist must be 5 or 6"
+  usage
+  exit 1
+fi
+
+resultdir="${SCRIPTPATH}/results/\"%(dist)s\"/\"%(target_arch)s\"/"
 tarball="perl-Sun-Solaris-Kstat-${version}-${short_commit}.tar.gz"
 repo_url="https://github.com/zfsonlinux/linux-kstat/archive/${commit}/${tarball}"
 
-if [ ! -e SOURCES/${tarball} ]; then
-  curl -L -o SOURCES/${tarball} ${repo_url}
+if [ ! -e ${SCRIPTPATH}/SOURCES/${tarball} ]; then
+  curl -L -o ${SCRIPTPATH}/SOURCES/${tarball} ${repo_url}
 fi
 
-out=$(rpmbuild -bs perl-Sun-Solaris-Kstat.spec)
-srpm=$(echo $out | awk -F" " '{print $2}')
+if [ "$DIST" -eq 5 ]; then
+  DIGEST="md5"
+else
+  DIGEST="sha256"
+fi
 
-mock -r epel-6-x86_64 --rebuild ${srpm}
+srpm=$(rpmbuild -bs --define "dist .el${DIST}" --define "_source_filedigest_algorithm ${DIGEST}" --define "_binary_filedigest_algorithm ${DIGEST}" ${SCRIPTPATH}/SPECS/perl-Sun-Solaris-Kstat.spec | awk -F" " '{print $2}')
+
+cmd="mock -r epel-${DIST}-x86_64 ${TRACE} --resultdir=${resultdir} --rebuild ${srpm}"
+echo "Executing: ${cmd}"
+eval $cmd
 
 exit 0
