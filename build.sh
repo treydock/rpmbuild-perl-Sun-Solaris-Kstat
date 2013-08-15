@@ -6,6 +6,9 @@
 commit="c74e8e026445540143e90bd027fb074eec698ac6"
 short_commit=$(echo $commit | cut -c1-7)
 version="0.01"
+spec_name="perl-Sun-Solaris-Kstat"
+git_url_base="https://github.com"
+git_url_path="zfsonlinux/linux-kstat/archive/${commit}/${tarball}"
 # END: User defined variables #
 
 # Default variables that have command line flags
@@ -24,7 +27,7 @@ usage () {
 cat << EOF
 usage: $(basename $0) [OPTIONS]
 
-This script builds RPMs for perl-Sun-Solaris-Kstat.
+This script builds RPMs for $spec_name.
 
 OPTIONS:
 
@@ -105,9 +108,8 @@ fi
 [ $QUIET -eq 1 ] && mock_quiet="--quiet" || mock_quiet=""
 [ "$DIST" == "all" ] && DIST="6 5"
 
-resultdir="${SCRIPTPATH}/results/\"%(dist)s\"/\"%(target_arch)s\"/"
-tarball="perl-Sun-Solaris-Kstat-${version}-${short_commit}.tar.gz"
-repo_url="https://github.com/zfsonlinux/linux-kstat/archive/${commit}/${tarball}"
+tarball="${spec_name}-${version}-${short_commit}.tar.gz"
+repo_url="${git_url_base}/${git_url_path}"
 
 # Download source tarball if not present
 if [ ! -e ${SCRIPTPATH}/SOURCES/${tarball} ]; then
@@ -126,7 +128,7 @@ do
   fi
 
   # Create SRPM
-  srpm_out=$(rpmbuild -bs --define "dist .el${d}" --define "_source_filedigest_algorithm ${DIGEST}" --define "_binary_filedigest_algorithm ${DIGEST}" ${SCRIPTPATH}/SPECS/perl-Sun-Solaris-Kstat.spec)
+  srpm_out=$(rpmbuild -bs --define "dist .el${d}" --define "_source_filedigest_algorithm ${DIGEST}" --define "_binary_filedigest_algorithm ${DIGEST}" ${SCRIPTPATH}/SPECS/${spec_name}.spec)
   srpm_ret=$?
   [ $srpm_ret != 0 ] && { echo "rpmbuild of SRPM for dist ${d} failed!"; continue; }
 
@@ -134,7 +136,7 @@ do
   srpm=$(echo $srpm_out | awk -F" " '{print $2}')
 
   # Run mock rebuild
-  cmd="mock -r epel-${d}-x86_64 ${mock_quiet} ${mock_trace} --resultdir=${resultdir} --rebuild ${srpm}"
+  cmd="mock -r epel-${d}-x86_64 --define=\"dist .el${d}\" ${mock_quiet} ${mock_trace} --resultdir=${SCRIPTPATH}/results/el${d} --rebuild ${srpm}"
   echo "Executing: ${cmd}"
   eval $cmd
   mock_ret=$?
